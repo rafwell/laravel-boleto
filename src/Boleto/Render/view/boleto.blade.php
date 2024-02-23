@@ -1,6 +1,12 @@
 @extends('BoletoHtmlRender::layout')
 @section('boleto')
 
+    <style>
+        .demonstrativo{
+            margin-top: 13px !important;
+        }
+    </style>
+
     @foreach($boletos as $i => $boleto)
         @php extract($boleto, EXTR_OVERWRITE); @endphp
         @if($mostrar_instrucoes)
@@ -145,22 +151,22 @@
             </tr>
             <tr>
                 <td colspan="5" class="notopborder">
-                    <div class="conteudo">{{ $demonstrativo[1] }}</div>
+                    <div class="conteudo demonstrativo">{{ $demonstrativo[1] }}</div>
                 </td>
             </tr>
             <tr>
                 <td colspan="5" class="notopborder">
-                    <div class="conteudo">{{ $demonstrativo[2] }}</div>
+                    <div class="conteudo demonstrativo">{{ $demonstrativo[2] }}</div>
                 </td>
             </tr>
             <tr>
                 <td colspan="5" class="notopborder">
-                    <div class="conteudo">{{ $demonstrativo[3] }}</div>
+                    <div class="conteudo demonstrativo">{{ $demonstrativo[3] }}</div>
                 </td>
             </tr>
             <tr>
                 <td colspan="5" class="notopborder bottomborder">
-                    <div style="margin-bottom: 10px;" class="conteudo">{{ $demonstrativo[4] }}</div>
+                    <div style="margin-bottom: 10px;" class="conteudo demonstrativo">{{ $demonstrativo[4] }}</div>
                 </td>
             </tr>
             </tbody>
