@@ -35,16 +35,15 @@
                 <span class="header">Linha Digitável: {{ $linha_digitavel }}</span>
                 <span class="header">Número: {{ $numero }}</span>
                 {!! $valor ? '<span class="header">Valor: R$' . $valor . '</span>' : '' !!}
-                <br>
             </div>
         @endif
 
-        <div class="linha-pontilhada" style="margin-bottom: 20px;">Recibo do pagador</div>
+        <div class="linha-pontilhada" style="margin-bottom: 10px;">Recibo do pagador</div>
 
         <div class="info-empresa">
             @if ($logo)
                 <div style="display: inline-block;">
-                    <img alt="logo" src="{{ $logo_base64 }}"/>
+                    <img alt="logo" src="{{ $logo_base64 }}" style="height: 50px;"/>
                 </div>
             @endif
             <div style="display: inline-block; vertical-align: super;">
@@ -54,7 +53,6 @@
                 <div>{{ $beneficiario['endereco2'] }}</div>
             </div>
         </div>
-        <br>
 
         <table class="table-boleto" cellpadding="0" cellspacing="0" border="0">
             <tbody>
@@ -173,8 +171,7 @@
         </table>
         <br>
         <div class="linha-pontilhada">Corte na linha pontilhada</div>
-        <br>
-
+        
         <!-- Ficha de compensação -->
         @include('BoletoHtmlRender::partials/ficha-compensacao')
 
