@@ -2,11 +2,12 @@
 
 namespace Eduardokum\LaravelBoleto\Cnab\Retorno\Cnab240\Banco;
 
+use Illuminate\Support\Arr;
+use Eduardokum\LaravelBoleto\Util;
+use Eduardokum\LaravelBoleto\Contracts\Cnab\RetornoCnab240;
+use Eduardokum\LaravelBoleto\Exception\ValidationException;
 use Eduardokum\LaravelBoleto\Cnab\Retorno\Cnab240\AbstractRetorno;
 use Eduardokum\LaravelBoleto\Contracts\Boleto\Boleto as BoletoContract;
-use Eduardokum\LaravelBoleto\Contracts\Cnab\RetornoCnab240;
-use Eduardokum\LaravelBoleto\Util;
-use Illuminate\Support\Arr;
 
 class Sicredi extends AbstractRetorno implements RetornoCnab240
 {
@@ -103,12 +104,12 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
     protected function init()
     {
         $this->totais = [
-            'liquidados' => 0,
-            'entradas' => 0,
-            'baixados' => 0,
+            'liquidados'  => 0,
+            'entradas'    => 0,
+            'baixados'    => 0,
             'protestados' => 0,
-            'erros' => 0,
-            'alterados' => 0,
+            'erros'       => 0,
+            'alterados'   => 0,
         ];
     }
 
@@ -116,7 +117,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
      * @param array $header
      *
      * @return bool
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function processarHeader(array $header)
     {
@@ -145,7 +146,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
      * @param array $headerLote
      *
      * @return bool
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function processarHeaderLote(array $headerLote)
     {
@@ -175,7 +176,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
      * @param array $detalhe
      *
      * @return bool
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function processarDetalhe(array $detalhe)
     {
@@ -191,7 +192,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
                 ->setValor(Util::nFloat($this->rem(82, 96, $detalhe) / 100, 2, false))
                 ->setNumeroControle($this->rem(106, 130, $detalhe))
                 ->setPagador([
-                    'nome' => $this->rem(149, 188, $detalhe),
+                    'nome'      => $this->rem(149, 188, $detalhe),
                     'documento' => $this->rem(134, 148, $detalhe),
                 ])
                 ->setValorTarifa(Util::nFloat($this->rem(199, 213, $detalhe) / 100, 2, false));
@@ -220,13 +221,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
                 $d->setOcorrenciaTipo($d::OCORRENCIA_ALTERACAO);
             } elseif ($d->hasOcorrencia('03', '26', '30', '36')) {
                 $this->totais['erros']++;
-                $error = Util::appendStrings(
-                    Arr::get($this->rejeicoes, $msgAdicional[0], ''),
-                    Arr::get($this->rejeicoes, $msgAdicional[1], ''),
-                    Arr::get($this->rejeicoes, $msgAdicional[2], ''),
-                    Arr::get($this->rejeicoes, $msgAdicional[3], ''),
-                    Arr::get($this->rejeicoes, $msgAdicional[4], '')
-                );
+                $error = Util::appendStrings(Arr::get($this->rejeicoes, $msgAdicional[0], ''), Arr::get($this->rejeicoes, $msgAdicional[1], ''), Arr::get($this->rejeicoes, $msgAdicional[2], ''), Arr::get($this->rejeicoes, $msgAdicional[3], ''), Arr::get($this->rejeicoes, $msgAdicional[4], ''));
                 $d->setError($error);
             } else {
                 $d->setOcorrenciaTipo($d::OCORRENCIA_OUTROS);
@@ -251,7 +246,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
      * @param array $trailer
      *
      * @return bool
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function processarTrailerLote(array $trailer)
     {
@@ -275,7 +270,7 @@ class Sicredi extends AbstractRetorno implements RetornoCnab240
      * @param array $trailer
      *
      * @return bool
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function processarTrailer(array $trailer)
     {

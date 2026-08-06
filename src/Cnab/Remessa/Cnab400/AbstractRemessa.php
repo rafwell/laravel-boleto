@@ -1,14 +1,14 @@
 <?php
+
 namespace Eduardokum\LaravelBoleto\Cnab\Remessa\Cnab400;
 
-use Eduardokum\LaravelBoleto\Cnab\Remessa\AbstractRemessa as AbstractRemessaGeneric;
 use ForceUTF8\Encoding;
+use Eduardokum\LaravelBoleto\Exception\ValidationException;
+use Eduardokum\LaravelBoleto\Cnab\Remessa\AbstractRemessa as AbstractRemessaGeneric;
 
 abstract class AbstractRemessa extends AbstractRemessaGeneric
 {
     protected $tamanho_linha = 400;
-
-    protected $tamanhos_linha = [];
 
     /**
      * Inicia a edição do header
@@ -18,6 +18,7 @@ abstract class AbstractRemessa extends AbstractRemessaGeneric
         $this->aRegistros[self::HEADER] = array_fill(0, $this->tamanho_linha, ' ');
         $this->tamanhos_linha[self::HEADER] = $this->tamanho_linha;
         $this->atual = &$this->aRegistros[self::HEADER];
+        $this->tamanho_atual = &$this->tamanhos_linha[self::HEADER];
     }
 
     /**
@@ -28,6 +29,7 @@ abstract class AbstractRemessa extends AbstractRemessaGeneric
         $this->aRegistros[self::TRAILER] = array_fill(0, $this->tamanho_linha, ' ');
         $this->tamanhos_linha[self::TRAILER] = $this->tamanho_linha;
         $this->atual = &$this->aRegistros[self::TRAILER];
+        $this->tamanho_atual = &$this->tamanhos_linha[self::TRAILER];
     }
 
     /**
@@ -53,52 +55,41 @@ abstract class AbstractRemessa extends AbstractRemessaGeneric
     /**
      * Inicia uma nova linha de detalhe e marca com a atual de edição
      */
-    protected function iniciaDetalhe()
-    {
-        $this->iRegistros++;
-        $this->aRegistros[self::DETALHE][$this->iRegistros] = array_fill(0, $this->tamanho_linha, ' ');
-        $this->tamanhos_linha[self::DETALHE][$this->iRegistros] = $this->tamanho_linha;
-        $this->atual = &$this->aRegistros[self::DETALHE][$this->iRegistros];
-    }
-
-    /**
-     * Inicia uma nova linha de detalhe extendido e marca com a atual de edição
-     */
-    protected function iniciaDetalheExtendido($extencao = 44)
+    protected function iniciaDetalhe($extencao = 0)
     {
         $this->iRegistros++;
         $this->aRegistros[self::DETALHE][$this->iRegistros] = array_fill(0, $this->tamanho_linha + $extencao, ' ');
         $this->tamanhos_linha[self::DETALHE][$this->iRegistros] = $this->tamanho_linha + $extencao;
         $this->atual = &$this->aRegistros[self::DETALHE][$this->iRegistros];
+        $this->tamanho_atual = &$this->tamanhos_linha[self::DETALHE][$this->iRegistros];
     }
 
     /**
      * Gera o arquivo, retorna a string.
      *
      * @return string
-     * @throws \Exception
+     * @throws ValidationException
      */
     public function gerar()
     {
-        if (!$this->isValid($messages)) {
-            throw new \Exception('Campos requeridos pelo banco, aparentam estar ausentes ' . $messages);
+        if (! $this->isValid($messages)) {
+            throw new ValidationException('Campos requeridos pelo banco, aparentam estar ausentes ' . $messages);
         }
 
         $stringRemessa = '';
         if ($this->iRegistros < 1) {
-            throw new \Exception('Nenhuma linha detalhe foi adicionada');
+            throw new ValidationException('Nenhuma linha detalhe foi adicionada');
         }
 
         $this->header();
         $stringRemessa .= $this->valida($this->getHeader()) . $this->fimLinha;
 
         foreach ($this->getDetalhes() as $i => $detalhe) {
-            if ($this->tamanhos_linha[self::DETALHE][$i] != 400) {
-                $stringRemessa .= $this->valida($detalhe, $this->tamanhos_linha[self::DETALHE][$i] - 400) . $this->fimLinha;
+            if ($this->tamanhos_linha[self::DETALHE][$i] != $this->tamanho_linha) {
+                $stringRemessa .= $this->valida($detalhe, $this->tamanhos_linha[self::DETALHE][$i] - $this->tamanho_linha) . $this->fimLinha;
             } else {
                 $stringRemessa .= $this->valida($detalhe) . $this->fimLinha;
             }
-
         }
 
         $this->trailer();
@@ -107,4 +98,3 @@ abstract class AbstractRemessa extends AbstractRemessaGeneric
         return Encoding::toUTF8($stringRemessa);
     }
 }
-

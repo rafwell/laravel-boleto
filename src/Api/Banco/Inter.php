@@ -1,20 +1,28 @@
 <?php
+
 namespace Eduardokum\LaravelBoleto\Api\Banco;
 
+use Exception;
 use Carbon\Carbon;
-use Eduardokum\LaravelBoleto\Api\AbstractAPI;
-use Eduardokum\LaravelBoleto\Contracts\Boleto\BoletoAPI as BoletoAPIContract;
-use Eduardokum\LaravelBoleto\Util;
 use Illuminate\Support\Arr;
+use Eduardokum\LaravelBoleto\Util;
+use Illuminate\Support\Facades\Storage;
+use Eduardokum\LaravelBoleto\Api\AbstractAPI;
+use Eduardokum\LaravelBoleto\Api\Exception\CurlException;
+use Eduardokum\LaravelBoleto\Api\Exception\HttpException;
+use Eduardokum\LaravelBoleto\Exception\ValidationException;
+use Eduardokum\LaravelBoleto\Boleto\Banco\Inter as BoletoInter;
+use Eduardokum\LaravelBoleto\Api\Exception\UnauthorizedException;
+use Eduardokum\LaravelBoleto\Contracts\Boleto\BoletoAPI as BoletoAPIContract;
 
 class Inter extends AbstractAPI
 {
-    protected $baseUrl = 'https://apis.bancointer.com.br';
+    protected $baseUrl = 'https://cdpj.partners.bancointer.com.br';
 
-    private $version = 1;
+    private $version = 3;
 
     /**
-     * Campos que são necessários para o boleto
+     * Campos necessários para o boleto
      *
      * @var array
      */
@@ -22,35 +30,46 @@ class Inter extends AbstractAPI
         'conta',
         'certificado',
         'certificadoChave',
+        'client_id',
+        'client_secret',
     ];
 
     public function __construct($params = [])
     {
-        if (isset($params['versao']) && $params['versao'] == 2) {
-            $this->version = 2;
-            $this->camposObrigatorios = [
-                'certificado',
-                'certificadoChave',
-                'client_id',
-                'client_secret'
-            ];
-            $this->baseUrl = 'https://cdpj.partners.bancointer.com.br';
+        $params['version'] = Arr::get($params, 'version', $this->version);
+        if (in_array($params['version'], [1, 2])) {
+            throw new ValidationException('Versão 1 e 2 da API foi descontinuada');
         }
+
+        if (! Storage::exists('laravel_boleto')) {
+            Storage::makeDirectory('laravel_boleto');
+        }
+        $this->setTokenStore(
+            AbstractAPI::fileTokenStore(
+                storage_path(
+                    sprintf(
+                        'app/laravel_boleto/api_inter_token_%s.json',
+                        Util::onlyAlphanumber(Arr::get($params, 'client_id') ?: Arr::get($params, 'clientId'))
+                    )
+                )
+            )
+        );
         parent::__construct($params);
     }
 
     protected function oAuth2()
     {
-        if ($this->version == 1 || $this->getAccessToken()) {
+        if ($this->getAccessToken()) {
             return $this;
         }
-        $grant = $this->post('/oauth/v2/token', [
+        $grant = $this->post($this->url('auth'), [
             'client_id'     => $this->getClientId(),
             'client_secret' => $this->getClientSecret(),
             'scope'         => 'boleto-cobranca.read boleto-cobranca.write',
-            'grant_type'    => 'client_credentials'
+            'grant_type'    => 'client_credentials',
         ], true)->body;
-        return $this->setAccessToken('Bearer ' . $grant->access_token);
+
+        return $this->setAccessToken('Bearer ' . $grant->access_token, $grant->expires_in);
     }
 
     /**
@@ -58,41 +77,57 @@ class Inter extends AbstractAPI
      */
     protected function headers()
     {
-        if ($this->version == 2) {
-            return array_filter([
-                'Authorization' => $this->getAccessToken(),
-            ]);
-        }
-        return [
+        return array_filter([
+            'Authorization'          => $this->getAccessToken(),
             'x-inter-conta-corrente' => $this->getConta(),
-        ];
+        ]);
     }
 
     /**
-     * @param BoletoAPIContract $boleto
+     * @param $url
+     * @param $type
+     * @return bool
+     * @throws ValidationException
+     */
+    public function createWebhook($url, $type = 'all')
+    {
+        try {
+            $this->oAuth2()->put($this->url('webhook'), ['webhookUrl' => $url]);
+
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * @param BoletoInter $boleto
      *
      * @return BoletoAPIContract
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\CurlException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\HttpException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\UnauthorizedException
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
      */
     public function createBoleto(BoletoAPIContract $boleto)
     {
         $data = $boleto->toAPI();
-        if ($this->version == 2) {
-            unset($data['dataEmissao']);
-            unset($data['dataLimite']);
-            $data['numDiasAgenda'] = (int) $boleto->getDiasBaixaAutomatica();
-            $data['pagador']['cpfCnpj'] = $data['pagador']['cnpjCpf'];
-            unset($data['pagador']['cnpjCpf']);
-        }
-        $retorno = $this->oAuth2()->post(
-            $this->version == 1
-                ? 'openbanking/v1/certificado/boletos'
-                : 'cobranca/v2/boletos',
-            $data
-        );
-        $boleto->setNossoNumero($retorno->body->nossoNumero);
+        $retorno = $this->oAuth2()->post($this->url('create'), $data);
+        $boleto->setID($retorno->body->codigoSolicitacao);
+
+        do {
+            $show = $this->retrieveID($boleto->getID());
+            if ($show->cobranca->situacao != 'A_RECEBER') {
+                usleep(500000); // ~0.5s
+                continue;
+            }
+
+            $boleto->setNossoNumero($show->boleto->nossoNumero);
+            if (isset($show->pix)) {
+                $boleto->setPixQrCode($show->pix->pixCopiaECola);
+            }
+        } while ($show->cobranca->situacao != 'A_RECEBER');
+
         return $boleto;
     }
 
@@ -100,40 +135,33 @@ class Inter extends AbstractAPI
      * @param array $inputedParams
      *
      * @return array
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\CurlException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\HttpException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\UnauthorizedException
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
      */
     public function retrieveList($inputedParams = [])
     {
         $params = array_filter([
-            'situacao'       => $this->version == 1 ? null : Arr::get($inputedParams, 'situacao', 'EXPIRADO,PAGO,EMABERTO,VENCIDO,CANCELADO'),
-            'filtrarPor'     => $this->version == 2 ? null : Arr::get($inputedParams, 'filtrarPor', 'TODOS'),
+            'situacao'       => Arr::get($inputedParams, 'situacao', 'A_RECEBER,RECEBIDO,CANCELADO,EXPIRADO,EM_PROCESSAMENTO,ATRASADO'),
             'filtrarDataPor' => Arr::get($inputedParams, 'filtrarDataPor', 'VENCIMENTO'),
             'dataInicial'    => Arr::get($inputedParams, 'dataInicial', Carbon::now()->startOfMonth()->format('Y-m-d')),
             'dataFinal'      => Arr::get($inputedParams, 'dataFinal', Carbon::now()->endOfMonth()->format('Y-m-d')),
-            'ordenarPor'     => Arr::get($inputedParams, 'ordenarPor', 'NOSSONUMERO'),
-            'page'           => $this->version == 1 ? 0 : null,
-            'size'           => $this->version == 1 ? 100 : null,
-            'paginaAtual'    => $this->version == 2 ? 0 : null,
-            'itensPorPagina' => $this->version == 2 ? 1000 : null,
-        ], function($v) { return !is_null($v); });
+            'ordenarPor'     => Arr::get($inputedParams, 'ordenarPor', 'CODIGO_COBRANCA'),
+            'paginacao'      => [
+                'paginaAtual'    => 0,
+                'itensPorPagina' => 1000,
+            ],
+        ], function ($v) {
+            return ! is_null($v);
+        });
 
         $aRetorno = [];
         do {
-            $retorno = $this->oAuth2()->get(
-                ($this->version == 1
-                    ? 'openbanking/v1/certificado/boletos?'
-                    : 'cobranca/v2/boletos?')
-                . http_build_query($params)
-            );
-            array_push($aRetorno, ...$retorno->body->content);
-            if ($this->version == 1) {
-                $params['page'] += 1;
-            } else {
-                $params['paginaAtual'] += 1;
-            }
-        } while (!$retorno->body->last);
+            $retorno = $this->oAuth2()->get($this->url('search') . http_build_query($params));
+            array_push($aRetorno, ...$retorno->body->cobrancas);
+            $params['paginacao']['paginaAtual'] += 1;
+        } while (! $retorno->body->ultimaPagina);
+
         return array_map([$this, 'arrayToBoleto'], $aRetorno);
     }
 
@@ -141,17 +169,28 @@ class Inter extends AbstractAPI
      * @param $nossoNumero
      *
      * @return mixed
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\CurlException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\HttpException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\UnauthorizedException
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
      */
     public function retrieveNossoNumero($nossoNumero)
     {
-        return $this->oAuth2()->get(
-            $this->version == 1
-                ? 'openbanking/v1/certificado/boletos/' . $nossoNumero
-                : 'cobranca/v2/boletos/' . $nossoNumero
-        )->body;
+        throw new ValidationException('Versão 3 da API somente recupera boleto pelo ID da cobrança');
+    }
+
+    /**
+     * @param $id
+     *
+     * @return mixed
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
+     */
+    public function retrieveID($id)
+    {
+        return $this->oAuth2()->get($this->url('show', $id))->body;
     }
 
     /**
@@ -159,70 +198,92 @@ class Inter extends AbstractAPI
      * @param string $motivo
      *
      * @return mixed
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\CurlException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\HttpException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\UnauthorizedException
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
      */
     public function cancelNossoNumero($nossoNumero, $motivo = 'ACERTOS')
     {
-        $motivosValidos = [
-            'ACERTOS',
-            'PAGODIRETOAOCLIENTE',
-            'SUBSTITUICAO',
-            'FALTADESOLUCAO',
-            'APEDIDODOCLIENTE',
-        ];
-        if ($this->version == 2) {
-            $motivosValidos = [
-                'ACERTOS',
-                'APEDIDODOCLIENTE',
-                'DEVOLUCAO',
-                'PAGODIRETOAOCLIENTE',
-                'SUBSTITUICAO',
-            ];
-        }
+        throw new ValidationException('Versão 3 da API somente cancela boleto pelo ID da cobrança');
+    }
 
-        if (!in_array(Util::upper($motivo), $motivosValidos)) {
-            $motivo = 'ACERTOS';
-        }
-        return $this->oAuth2()->post(
-            $this->version == 1
-                ? 'openbanking/v1/certificado/boletos/' . $nossoNumero . '/baixas'
-                : 'cobranca/v2/boletos/' . $nossoNumero . '/cancelar',
-            $this->version == 1
-                ? ['codigoBaixa' => $motivo]
-                : ['motivoCancelamento' => $motivo]
-        )->body;
+    /**
+     * @param        $id
+     * @param string $motivo
+     *
+     * @return mixed
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
+     */
+    public function cancelID($id, $motivo = 'ACERTOS')
+    {
+        return $this->oAuth2()->post($this->url('cancel', $id), ['motivoCancelamento' => $motivo])->body;
     }
 
     /**
      * @param $nossoNumero
      *
      * @return mixed
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\CurlException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\HttpException
-     * @throws \Eduardokum\LaravelBoleto\Api\Exception\UnauthorizedException
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
      */
     public function getPdfNossoNumero($nossoNumero)
     {
-        return $this->oAuth2()->get(
-            $this->version == 1
-                ? 'openbanking/v1/certificado/boletos/' . $nossoNumero . '/pdf'
-                : 'cobranca/v2/boletos/' . $nossoNumero . '/pdf'
-        )->body;
+        throw new ValidationException('Versão 3 da API somente recupera PDF pelo ID da cobrança');
+    }
+
+    /**
+     * @param $id
+     *
+     * @return mixed
+     * @throws CurlException
+     * @throws HttpException
+     * @throws UnauthorizedException
+     * @throws ValidationException
+     */
+    public function getPdfID($id)
+    {
+        return $this->oAuth2()->get($this->url('pdf', $id))->body;
     }
 
     /**
      * @param $boleto
      *
-     * @return \Eduardokum\LaravelBoleto\Boleto\Banco\Inter
-     * @throws \Exception
+     * @return BoletoInter
+     * @throws ValidationException
      */
     private function arrayToBoleto($boleto)
     {
-        return \Eduardokum\LaravelBoleto\Boleto\Banco\Inter::fromAPI($boleto, [
+        return BoletoInter::fromAPI($boleto, [
             'conta'        => $this->getConta(),
             'beneficiario' => $this->getBeneficiario(),
         ]);
+    }
+
+    /**
+     * @param $type
+     * @param $param
+     * @return string
+     */
+    private function url($type, $param = null)
+    {
+        $aUrls = [
+            3 => [
+                'create'  => 'cobranca/v3/cobrancas',
+                'show'    => 'cobranca/v3/cobrancas/' . $param,
+                'cancel'  => 'cobranca/v3/cobrancas/' . $param . '/cancelar',
+                'pdf'     => 'cobranca/v3/cobrancas/' . $param . '/pdf',
+                'search'  => 'cobranca/v3/cobrancas?',
+                'auth'    => '/oauth/v2/token',
+                'webhook' => 'cobranca/v3/cobrancas/webhook',
+            ],
+        ];
+
+        return Arr::get($aUrls, "$this->version.$type");
     }
 }

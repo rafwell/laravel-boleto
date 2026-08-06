@@ -1,34 +1,39 @@
 <?php
+
 namespace Eduardokum\LaravelBoleto\Boleto\Banco;
 
-use Eduardokum\LaravelBoleto\Boleto\AbstractBoleto;
-use Eduardokum\LaravelBoleto\CalculoDV;
-use Eduardokum\LaravelBoleto\Contracts\Boleto\Boleto as BoletoContract;
 use Eduardokum\LaravelBoleto\Util;
+use Eduardokum\LaravelBoleto\CalculoDV;
+use Eduardokum\LaravelBoleto\Boleto\AbstractBoleto;
+use Eduardokum\LaravelBoleto\Contracts\Boleto\Boleto as BoletoContract;
 
 class Fibra extends AbstractBoleto implements BoletoContract
 {
     public function __construct(array $params = [])
     {
         parent::__construct($params);
-        $this->addCampoObrigatorio('range', 'codigoCliente', 'modalidadeCarteira');
+        $this->addCampoObrigatorio('range', 'codigoCliente');
     }
+
     /**
      * Moeda
      *
      * @var int
      */
     protected $moeda = 0;
+
     /**
      * Código do banco
      * @var string
      */
     protected $codigoBanco = self::COD_BANCO_FIBRA;
+
     /**
      * Define as carteiras disponíveis para este banco
      * @var array
      */
-    protected $carteiras = false;
+    protected $carteiras = ['1', '5', 'D'];
+
     /**
      * Espécie do documento, código para remessa do CNAB240
      * @var string
@@ -44,28 +49,26 @@ class Fibra extends AbstractBoleto implements BoletoContract
         'CAR' => '31', //Cartão de crédito
         'O'   => '99',  //Outros,
     ];
+
     /**
      * Linha de local de pagamento
      *
      * @var string
      */
     protected $localPagamento = 'Canais eletrônicos, agências ou correspondentes bancários de todo o BRASIL';
+
     /**
      * Código de range de composição do nosso numero.
      *
      * @var int
      */
     protected $range = 0;
+
     /**
      * @var string
      */
     protected $codigoCliente;
-    /**
-     * Modalidade da carteira
-     *
-     * @var string
-     */
-    protected $modalidadeCarteira;
+
     /**
      * @return int
      */
@@ -73,6 +76,7 @@ class Fibra extends AbstractBoleto implements BoletoContract
     {
         return $this->range;
     }
+
     /**
      * @param int $range
      *
@@ -84,17 +88,20 @@ class Fibra extends AbstractBoleto implements BoletoContract
 
         return $this;
     }
+
     /**
      * Define o número do codigo do Cliente
      *
-     * @param  string $codigoCliente
+     * @param string $codigoCliente
      * @return Fibra
      */
     public function setCodigoCliente($codigoCliente)
     {
         $this->codigoCliente = $codigoCliente;
+
         return $this;
     }
+
     /**
      * Retorna o número do codigo Cliente
      *
@@ -104,54 +111,46 @@ class Fibra extends AbstractBoleto implements BoletoContract
     {
         return $this->codigoCliente;
     }
+
     /**
-     * Retorna a modalidade da carteira
+     * Retorna o número definido pelo cliente para compor o nosso número
      *
-     * @return mixed
+     * @return int
      */
-    public function getModalidadeCarteira()
+    public function getNumero()
     {
-        return $this->modalidadeCarteira;
+        return $this->numero < $this->getRange() ? $this->getRange() + $this->numero : $this->numero;
     }
 
     /**
-     * Seta a modalidade da carteira.
+     * Retorna o código da carteira (Com ou sem registro)
      *
-     * @param mixed $modalidadeCarteira
-     *
-     * @return Fibra
-     * @throws \Exception
+     * @return string
      */
-    public function setModalidadeCarteira($modalidadeCarteira)
+    public function getCarteira()
     {
-        $modalidadeCarteira = Util::upper($modalidadeCarteira);
-        if (!in_array($modalidadeCarteira, ['1', '5', 'D'])) {
-            throw new \Exception('Modalidade da carteira inválida');
-        }
-        $this->modalidadeCarteira = $modalidadeCarteira;
-
-        return $this;
+        return $this->carteira == 'D' ? '121' : '112';
     }
+
     /**
      * Gera o Nosso Número.
      *
-     * @throws \Exception
      * @return string
      */
     protected function gerarNossoNumero()
     {
         $nn = 0;
-        if (Util::upper($this->getModalidadeCarteira()) == 'D') {
-            $nn = ((int) $this->getRange()) + ((int) $this->getNumero());
-            $nn .= CalculoDV::fibraNossoNumero($this->getAgencia(), $this->getCarteira(), $nn);
+        if (Util::upper($this->carteira) == 'D') {
+            $nn = $this->getNumero() . CalculoDV::fibraNossoNumero($this->getAgencia(), $this->getCarteira(), $nn);
         }
+
         return Util::numberFormatGeral($nn, 11);
     }
+
     /**
      * Método para gerar o código da posição de 20 a 44
      *
      * @return string
-     * @throws \Exception
      */
     protected function getCampoLivre()
     {
@@ -176,19 +175,20 @@ class Fibra extends AbstractBoleto implements BoletoContract
      *
      * @return array
      */
-    static public function parseCampoLivre($campoLivre) {
+    public static function parseCampoLivre($campoLivre)
+    {
         return [
-            'convenio' => null,
-            'parcela' => null,
-            'agenciaDv' => null,
-            'contaCorrente' => null,
-            'modalidade' => null,
+            'convenio'        => null,
+            'parcela'         => null,
+            'agenciaDv'       => null,
+            'contaCorrente'   => null,
+            'modalidade'      => null,
             'contaCorrenteDv' => null,
-            'nossoNumeroDv' => null,
-            'agencia' => substr($campoLivre, 0, 4),
-            'nossa_carteira' => substr($campoLivre, 4, 3),
-            'codigoCliente' =>  substr($campoLivre, 7, 7),
-            'nossoNumero' => substr($campoLivre, 14, 11),
+            'nossoNumeroDv'   => null,
+            'agencia'         => substr($campoLivre, 0, 4),
+            'nossa_carteira'  => substr($campoLivre, 4, 3),
+            'codigoCliente'   => substr($campoLivre, 7, 7),
+            'nossoNumero'     => substr($campoLivre, 14, 11),
             'nossoNumeroFull' => substr($campoLivre, 14, 11),
         ];
     }
@@ -196,7 +196,16 @@ class Fibra extends AbstractBoleto implements BoletoContract
     /**
      * @return string
      */
-    public function getAgenciaCodigoBeneficiario(){
-        return sprintf('%s%s / %s%s',$this->getAgencia(), CalculoDV::fibraAgencia($this->getAgencia()), $this->getConta(), CalculoDV::fibraConta($this->getConta()));
+    public function getAgenciaCodigoBeneficiario()
+    {
+        return sprintf('%s%s / %s%s', $this->getAgencia(), CalculoDV::fibraAgencia($this->getAgencia()), $this->getConta(), CalculoDV::fibraConta($this->getConta()));
+    }
+
+    /**
+     * @return bool
+     */
+    public function imprimeBoleto()
+    {
+        return Util::upper($this->carteira) == 'D';
     }
 }
