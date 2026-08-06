@@ -1,12 +1,14 @@
 <?php
+
 namespace Eduardokum\LaravelBoleto\Cnab\Remessa\Cnab400\Banco;
 
+use Eduardokum\LaravelBoleto\Util;
+use Eduardokum\LaravelBoleto\Exception\ValidationException;
 use Eduardokum\LaravelBoleto\Cnab\Remessa\Cnab400\AbstractRemessa;
 use Eduardokum\LaravelBoleto\Contracts\Boleto\Boleto as BoletoContract;
 use Eduardokum\LaravelBoleto\Contracts\Cnab\Remessa as RemessaContract;
-use Eduardokum\LaravelBoleto\Util;
 
-class Caixa  extends AbstractRemessa implements RemessaContract
+class Caixa extends AbstractRemessa implements RemessaContract
 {
     const ESPECIE_DUPLICATA = '01';
     const ESPECIE_NOTA_PROMISSORIA = '02';
@@ -14,7 +16,6 @@ class Caixa  extends AbstractRemessa implements RemessaContract
     const SPECIE_NOTA_SEGURO = '05';
     const ESPECIE_LETRAS_CAMBIO = '06';
     const ESPECIE_OUTROS = '09';
-
     const OCORRENCIA_REMESSA = '01';
     const OCORRENCIA_PEDIDO_BAIXA = '02';
     const OCORRENCIA_CONCESSAO_ABATIMENTO = '03';
@@ -27,7 +28,6 @@ class Caixa  extends AbstractRemessa implements RemessaContract
     const OCORRENCIA_ALT_OUTROS_DADOS_EMISSAO_BOLETO = '10';
     const OCORRENCIA_ALT_PROTESTO_DEVOLUCAO = '11';
     const OCORRENCIA_ALT_DEVOLUCAO_PROTESTO = '12';
-
     const INSTRUCAO_SEM = '00';
     const INSTRUCAO_PROTESTAR_VENC_XX = '01';
     const INSTRUCAO_DEVOLVER_VENC_XX = '02';
@@ -37,7 +37,6 @@ class Caixa  extends AbstractRemessa implements RemessaContract
         parent::__construct($params);
         $this->addCampoObrigatorio('codigoCliente', 'idremessa');
     }
-
 
     /**
      * Código do banco
@@ -51,7 +50,7 @@ class Caixa  extends AbstractRemessa implements RemessaContract
      *
      * @var array
      */
-    protected $carteiras = ['RG', 'SR'];
+    protected $carteiras = ['RG', 'SR', '1'];
 
     /**
      * Caracter de fim de linha
@@ -94,6 +93,7 @@ class Caixa  extends AbstractRemessa implements RemessaContract
         if ($this->getCarteira() == 'SR') {
             return '02';
         }
+
         return '01';
     }
 
@@ -113,7 +113,7 @@ class Caixa  extends AbstractRemessa implements RemessaContract
 
     /**
      * @return Caixa
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function header()
     {
@@ -148,22 +148,18 @@ class Caixa  extends AbstractRemessa implements RemessaContract
      * @param \Eduardokum\LaravelBoleto\Boleto\Banco\Caixa $boleto
      *
      * @return Caixa
-     * @throws \Exception
+     * @throws ValidationException
      */
     public function addBoleto(BoletoContract $boleto)
     {
         $this->boletos[] = $boleto;
-        if ($chaveNfe = $boleto->getChaveNfe()) {
-            $this->iniciaDetalheExtendido();
-        } else {
-            $this->iniciaDetalhe();
-        }
+        $this->iniciaDetalhe(($chaveNfe = $boleto->getChaveNfe()) ? 44 : 0);
 
         $this->add(1, 1, '1');
         $this->add(2, 3, strlen(Util::onlyNumbers($this->getBeneficiario()->getDocumento())) == 14 ? '02' : '01');
         $this->add(4, 17, Util::formatCnab('9', Util::onlyNumbers($this->getBeneficiario()->getDocumento()), 14));
         if ($this->isLayout007()) {
-            $this->add(18, 20, '');
+            $this->add(18, 20, '000');
             $this->add(21, 27, Util::formatCnab('9', $this->getCodigoCliente(), 7));
         } else {
             $this->add(18, 21, Util::formatCnab('9', $this->getAgencia(), 4));
@@ -195,7 +191,7 @@ class Caixa  extends AbstractRemessa implements RemessaContract
         $this->add(127, 139, Util::formatCnab('9', $boleto->getValor(), 13, 2));
         $this->add(140, 142, $this->getCodigoBanco());
         $this->add(143, 147, '00000');
-        $this->add(148, 149, $boleto->getEspecieDocCodigo());
+        $this->add(148, 149, $boleto->getEspecieDocCodigo(99, 400));
         $this->add(150, 150, $boleto->getAceite());
         $this->add(151, 156, $boleto->getDataDocumento()->format('dmy'));
         $this->add(157, 158, self::INSTRUCAO_SEM);
@@ -235,7 +231,7 @@ class Caixa  extends AbstractRemessa implements RemessaContract
 
     /**
      * @return Caixa
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function trailer()
     {

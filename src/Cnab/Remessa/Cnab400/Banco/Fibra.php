@@ -1,11 +1,12 @@
 <?php
+
 namespace Eduardokum\LaravelBoleto\Cnab\Remessa\Cnab400\Banco;
 
-use Eduardokum\LaravelBoleto\CalculoDV;
-use Eduardokum\LaravelBoleto\Cnab\Remessa\Cnab400\AbstractRemessa;
-use Eduardokum\LaravelBoleto\Contracts\Cnab\Remessa as RemessaContract;
-use Eduardokum\LaravelBoleto\Contracts\Boleto\Boleto as BoletoContract;
 use Eduardokum\LaravelBoleto\Util;
+use Eduardokum\LaravelBoleto\Exception\ValidationException;
+use Eduardokum\LaravelBoleto\Cnab\Remessa\Cnab400\AbstractRemessa;
+use Eduardokum\LaravelBoleto\Contracts\Boleto\Boleto as BoletoContract;
+use Eduardokum\LaravelBoleto\Contracts\Cnab\Remessa as RemessaContract;
 
 class Fibra extends AbstractRemessa implements RemessaContract
 {
@@ -18,7 +19,6 @@ class Fibra extends AbstractRemessa implements RemessaContract
     const ESPECIE_DUPLICATA_SERVICO = '12';
     const ESPECIE_CARTAO_CREDITO = '31';
     const ESPECIE_OUTROS = '99';
-
     const OCORRENCIA_REMESSA = '01';
     const OCORRENCIA_PEDIDO_BAIXA = '02';
     const OCORRENCIA_CONCESSAO_ABATIMENTO = '04';
@@ -28,7 +28,6 @@ class Fibra extends AbstractRemessa implements RemessaContract
     const OCORRENCIA_PEDIDO_NAO_PROTESTO = '10';
     const OCORRENCIA_SUSTAR_PROTESTO_BAIXAR_TITULO = '18';
     const OCORRENCIA_ALT_VALOR_VENCIMENTO = '47';
-
     const INSTRUCAO_SEM = '00';
     const INSTRUCAO_PROTESTO = '09';
     const INSTRUCAO_SEM_PROTESTO = '10';
@@ -38,7 +37,6 @@ class Fibra extends AbstractRemessa implements RemessaContract
         parent::__construct($params);
         $this->addCampoObrigatorio('codigoCliente');
     }
-
 
     /**
      * Código do banco
@@ -52,7 +50,6 @@ class Fibra extends AbstractRemessa implements RemessaContract
      *
      * @var array
      */
-
     protected $carteiras = false;
 
     /**
@@ -80,7 +77,7 @@ class Fibra extends AbstractRemessa implements RemessaContract
      * Retorna o codigo do cliente.
      *
      * @return mixed
-     * @throws \Exception
+     * @throws ValidationException
      */
     public function getCodigoCliente()
     {
@@ -103,7 +100,7 @@ class Fibra extends AbstractRemessa implements RemessaContract
 
     /**
      * @return Fibra
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function header()
     {
@@ -129,7 +126,7 @@ class Fibra extends AbstractRemessa implements RemessaContract
      * @param \Eduardokum\LaravelBoleto\Boleto\Banco\Fibra $boleto
      *
      * @return Fibra
-     * @throws \Exception
+     * @throws ValidationException
      */
     public function addBoleto(BoletoContract $boleto)
     {
@@ -146,9 +143,9 @@ class Fibra extends AbstractRemessa implements RemessaContract
         $this->add(87, 89, Util::formatCnab('X', '', 3));
         $this->add(90, 90, $boleto->getMulta() > 0 ? '2' : '0');
         $this->add(91, 103, Util::formatCnab('9', $boleto->getMulta(), 13, 2));
-        $this->add(104, 105, $boleto->getMulta() > 0 ? '01' : '00');
+        $this->add(104, 105, $boleto->getMulta() > 0 ? Util::numberFormatGeral($boleto->getMultaApos(), 2) : '00');
         $this->add(106, 107, '');
-        $this->add(108, 108, Util::formatCnab('9', $boleto->getModalidadeCarteira(), 1));
+        $this->add(108, 108, Util::formatCnab('9', $this->getCarteira(), 1));
         $this->add(109, 110, self::OCORRENCIA_REMESSA); // REGISTRO
         if ($boleto->getStatus() == $boleto::STATUS_BAIXA) {
             $this->add(109, 110, self::OCORRENCIA_PEDIDO_BAIXA); // BAIXA
@@ -166,8 +163,8 @@ class Fibra extends AbstractRemessa implements RemessaContract
         $this->add(121, 126, $boleto->getDataVencimento()->format('dmy'));
         $this->add(127, 139, Util::formatCnab('9', $boleto->getValor(), 13, 2));
         $this->add(140, 142, $this->getCodigoBanco());
-        $this->add(143, 146,  Util::formatCnab('9', 0, 4));
-        $this->add(147, 147,  Util::formatCnab('9', 0, 1));
+        $this->add(143, 146, Util::formatCnab('9', 0, 4));
+        $this->add(147, 147, Util::formatCnab('9', 0, 1));
         $this->add(148, 149, $boleto->getEspecieDocCodigo());
         $this->add(150, 150, $boleto->getAceite());
         $this->add(151, 156, $boleto->getDataDocumento()->format('dmy'));
@@ -199,10 +196,10 @@ class Fibra extends AbstractRemessa implements RemessaContract
         $this->add(394, 394, $boleto->getMoeda());
         $this->add(395, 400, Util::formatCnab('9', $this->iRegistros + 1, 6));
 
-        if ($chaveNfe = $boleto->getChaveNfe()) {
+        if (count($boleto->getNotasFiscais()) > 0) {
             $this->iniciaDetalhe();
             $this->add(1, 1, '4');
-            $this->add(38, 81, Util::formatCnab('9', $chaveNfe, 44));
+            $this->add(38, 81, Util::formatCnab('9', $boleto->getNotaFiscal(0)->getChave(), 44));
             $this->add(395, 400, Util::formatCnab('9', $this->iRegistros + 1, 6));
         }
 
@@ -211,7 +208,7 @@ class Fibra extends AbstractRemessa implements RemessaContract
 
     /**
      * @return Fibra
-     * @throws \Exception
+     * @throws ValidationException
      */
     protected function trailer()
     {
